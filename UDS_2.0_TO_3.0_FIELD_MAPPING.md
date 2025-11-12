@@ -2,10 +2,6 @@
 
 **Purpose:** This document provides a comprehensive field-by-field mapping between UDS 2.0 fixed-width records and UDS 3.0 JSON structure. It verifies that all UDS 2.0 fields are preserved in UDS 3.0, documents their requirements, and notes compatibility considerations.
 
-**Note:** This is a living document representing the current state of UDS 3.0's JSON schema compared to UDS 2.0 and does not represent
-a final proposal. Differences between UDS versions in this document _should_ be addressed either as a change to the JSON
-specification or otherwise noted as an acceptable difference.
-
 **Key:**
 - **Req 2.0:** R = Required, C = Conditional, O = Optional
 - **Req 3.0:** Y = Required, N = Not Required, C = Conditional (based on JSON schema)
@@ -641,6 +637,227 @@ Where UDS 3.0 differs from UDS 2.0, it generally **expands** capabilities:
 - No batch size limit (vs. 999 claims)
 
 **Conclusion:** UDS 3.0 is fully backward compatible with UDS 2.0 in terms of data content and business rules, with improvements to data modeling and extensibility.
+
+---
+
+## Database Implementation Guidelines: Recommended Column Sizes
+
+### The Challenge
+
+While JSON allows for variable-length strings with no practical limits, database implementations require specific column sizes. UDS 3.0 advertises "unlimited field length" for flexibility, but developers need practical guidance for database schema design.
+
+### Approach
+
+These recommendations use **UDS 2.0 field lengths as a proven baseline** (they worked successfully for 30 years) while providing **generous headroom** for Unicode characters, international names, and future growth. The sizing tiers align with standard database conventions that are well-understood by developers.
+
+### Sizing Tiers
+
+| Tier           | Recommended Type         | Use Case             | UDS 2.0 Baseline |
+|----------------|--------------------------|----------------------|------------------|
+| **Tiny**       | `varchar(10)`            | Codes, indicators    | 1-3 chars        |
+| **Small**      | `varchar(50)`            | Short identifiers    | 5-20 chars       |
+| **Medium**     | `varchar(100)`           | Standard identifiers | 20-30 chars      |
+| **Large**      | `varchar(255)`           | Names, addresses     | 30-50 chars      |
+| **Very Large** | `varchar(500)` or `text` | Descriptions         | 60-128 chars     |
+| **Unlimited**  | `text` or `longtext`     | Notes, narratives    | 1000+ chars      |
+
+---
+
+### Field-Specific Recommendations
+
+#### Identifiers and Numbers
+
+| UDS 3.0 Field                     | UDS 2.0 Length   | Recommended Type       | Rationale                                  |
+|-----------------------------------|------------------|------------------------|--------------------------------------------|
+| `Batch.Id`                        | 3 digits         | `int` or `varchar(50)` | Native integer or short string             |
+| `InsuranceCompany.NAIC`           | 5 chars          | `varchar(10)`          | Fixed 5-digit code                         |
+| `PolicyRecord.PolicyNumber`       | 20 chars         | `varchar(100)`         | Doubles UDS 2.0 limit with headroom        |
+| `PolicyRecord.IssuingCompanyCode` | 5 chars          | `varchar(10)`          | Fixed 5-digit NAIC                         |
+| `Claim.Number`                    | 20 chars         | `varchar(100)`         | No "long claim number" field needed in 3.0 |
+| `Claim.ReceiverNumber`            | 20 chars         | `varchar(100)`         | Same as claim number                       |
+| `Claim.TPAClaimNumber`            | 30 chars         | `varchar(100)`         | Generous headroom for TPA systems          |
+| `Claimant.Number`                 | 5 digits (00001) | `int` or `varchar(10)` | Native integer recommended                 |
+| `Insured.Number`                  | N/A (new in 3.0) | `int` or `varchar(10)` | Sequence number                            |
+
+#### Names
+
+| UDS 3.0 Field         | UDS 2.0 Length             | Recommended Type | Rationale                                  |
+|-----------------------|----------------------------|------------------|--------------------------------------------|
+| `Insured.FirstName`   | 30 chars (part of NAME #2) | `varchar(255)`   | Allows long names, Unicode, compound names |
+| `Insured.MiddleName`  | N/A (new in 3.0)           | `varchar(100)`   | Middle names/initials                      |
+| `Insured.LastName`    | 30 chars (NAME #1)         | `varchar(255)`   | Allows long surnames, business names       |
+| `Claimant.FirstName`  | 30 chars (part of NAME #2) | `varchar(255)`   | Same as Insured                            |
+| `Claimant.MiddleName` | N/A (new in 3.0)           | `varchar(100)`   | Same as Insured                            |
+| `Claimant.LastName`   | 30 chars (NAME #1)         | `varchar(255)`   | Same as Insured                            |
+| `Payee.NameLine1`     | 30 chars                   | `varchar(255)`   | Full payee name                            |
+| `Payee.NameLine2`     | 30 chars                   | `varchar(255)`   | Continuation or blank                      |
+
+#### Addresses
+
+| UDS 3.0 Field     | UDS 2.0 Length   | Recommended Type | Rationale                             |
+|-------------------|------------------|------------------|---------------------------------------|
+| `Address.Type`    | N/A (new in 3.0) | `varchar(50)`    | "Primary", "Work", "Mailing"          |
+| `Address.Line1`   | 30 chars         | `varchar(255)`   | Addresses can be long internationally |
+| `Address.Line2`   | 30 chars         | `varchar(255)`   | Same as Line1                         |
+| `Address.City`    | 25 chars         | `varchar(100)`   | Some cities have long names           |
+| `Address.State`   | 2 chars          | `varchar(10)`    | 2-char codes, some headroom           |
+| `Address.ZipCode` | 9 chars          | `varchar(20)`    | International postal codes vary       |
+| `Address.Country` | N/A (new in 3.0) | `varchar(10)`    | 2-3 char country codes (US, CA, MEX)  |
+
+#### Contact Information
+
+| UDS 3.0 Field          | UDS 2.0 Length   | Recommended Type | Rationale                   |
+|------------------------|------------------|------------------|-----------------------------|
+| `Insured.Emails[]`     | N/A (new in 3.0) | `varchar(255)`   | Standard email field size   |
+| `Claimant.Emails[]`    | N/A (new in 3.0) | `varchar(255)`   | Standard email field size   |
+| `Employer.PhoneNumber` | 10 chars         | `varchar(20)`    | International phone formats |
+| `Employer.Email`       | N/A (new in 3.0) | `varchar(255)`   | Standard email field size   |
+
+#### Codes and Indicators
+
+| UDS 3.0 Field                       | UDS 2.0 Length   | Recommended Type | Rationale                  |
+|-------------------------------------|------------------|------------------|----------------------------|
+| `Coverage.Code`                     | 6 chars          | `varchar(10)`    | 6-digit coverage codes     |
+| `Coverage.Name`                     | N/A (new in 3.0) | `varchar(255)`   | Coverage descriptions      |
+| `Claim.TransactionCode`             | 3 chars          | `varchar(10)`    | 3-digit transaction codes  |
+| `PaymentType.Code`                  | 3 chars          | `varchar(10)`    | 3-digit payment type codes |
+| `PaymentType.Name`                  | N/A (new in 3.0) | `varchar(255)`   | Payment type descriptions  |
+| `Catastrophe.Code`                  | 2 chars          | `varchar(10)`    | Catastrophe codes          |
+| `Catastrophe.Name`                  | N/A (new in 3.0) | `varchar(255)`   | Catastrophe names          |
+| `Claim.RecoveryIndicatorCode`       | 1 char           | `varchar(10)`    | Recovery codes (0-5)       |
+| `Claim.SecondInjuryFundIndicator`   | 1 char           | `varchar(10)`    | Y/N/U                      |
+| `Claim.RepetitivePaymentIndicator`  | 1 char           | `varchar(10)`    | Y/N                        |
+| `Claim.AggregatePolicyIndicator`    | 1 char           | `varchar(10)`    | Y/N/U                      |
+| `Claim.DeductiblePolicyIndicator`   | 1 char           | `varchar(10)`    | Y/N/U                      |
+| `PolicyRecord.CancellationCode`     | 1 char           | `varchar(10)`    | C/F/L/N/R                  |
+| `ReturnPremium.FinalAuditIndicator` | 1 char           | `varchar(10)`    | Y/N                        |
+
+#### Workers' Compensation Fields
+
+| UDS 3.0 Field                                  | UDS 2.0 Length | Recommended Type         | Rationale                        |
+|------------------------------------------------|----------------|--------------------------|----------------------------------|
+| `WorkersCompensation.InjuryCode`               | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.PartOfBody`               | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.NatureOfInjury`           | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.Cause`                    | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.Act`                      | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.TypeOfLoss`               | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.TypeOfRecovery`           | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.TypeOfCoverage`           | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.TypeOfSettlement`         | 3 chars        | `varchar(10)`            | WCIO codes                       |
+| `WorkersCompensation.VocationalRehabIndicator` | 1 char         | `varchar(10)`            | Y/N/U                            |
+| `WorkersCompensation.DescriptionOfInjury`      | 64 chars       | `varchar(500)` or `text` | Can be longer than UDS 2.0 limit |
+| `WorkersCompensation.WCABNumber`               | 12 chars       | `varchar(50)`            | Workers' comp board numbers      |
+| `Claim.ServicingOfficeCode`                    | 6 chars        | `varchar(20)`            | TPA/branch office codes          |
+
+#### Identification Fields
+
+| UDS 3.0 Field        | UDS 2.0 Length   | Recommended Type | Rationale                              |
+|----------------------|------------------|------------------|----------------------------------------|
+| `Identification.SSN` | 9 chars          | `varchar(20)`    | Social Security Numbers                |
+| `Identification.EIN` | 9 chars          | `varchar(20)`    | Employer ID Numbers                    |
+| `Identification.DLN` | N/A (new in 3.0) | `varchar(50)`    | Driver's License Numbers vary by state |
+
+#### Dates and Timestamps
+
+| UDS 3.0 Field                         | UDS 2.0 Length     | Recommended Type          | Rationale                   |
+|---------------------------------------|--------------------|---------------------------|-----------------------------|
+| All dates (DateOfLoss, etc.)          | 8 chars (YYYYMMDD) | `date`                    | Native SQL date type        |
+| All timestamps (CreatedOn, etc.)      | N/A (new in 3.0)   | `datetime` or `timestamp` | Native SQL datetime type    |
+| ISO-8601 strings (if storing as text) | N/A                | `varchar(50)`             | "2024-01-15T10:30:00-05:00" |
+
+#### Amounts and Numbers
+
+| UDS 3.0 Field                       | UDS 2.0 Length                  | Recommended Type | Rationale           |
+|-------------------------------------|---------------------------------|------------------|---------------------|
+| `Claim.TransactionAmount`           | 12 chars (9 int + 2 dec + sign) | `decimal(12,2)`  | Native decimal type |
+| `Coverage.OutstandingReserve`       | 12 chars                        | `decimal(12,2)`  | Native decimal type |
+| `Payment.CheckAmount`               | 12 chars                        | `decimal(12,2)`  | Native decimal type |
+| `ReturnPremium.ReturnPremiumAmount` | 10 chars                        | `decimal(12,2)`  | Native decimal type |
+| `ReturnPremium.UnpaidPremiumAmount` | 10 chars                        | `decimal(12,2)`  | Native decimal type |
+| `PolicyRecord.TotalWrittenPremium`  | 10 chars                        | `decimal(12,2)`  | Native decimal type |
+| `PolicyRecord.TotalInForcePremium`  | 10 chars                        | `decimal(12,2)`  | Native decimal type |
+| `Batch.RowCount`                    | N/A                             | `int`            | Native integer      |
+
+#### Descriptions and Comments
+
+| UDS 3.0 Field           | UDS 2.0 Length           | Recommended Type          | Rationale                    |
+|-------------------------|--------------------------|---------------------------|------------------------------|
+| `Batch.Message`         | N/A (new in 3.0)         | `varchar(500)` or `text`  | Batch-level messages         |
+| `Payment.Comment`       | 60 chars                 | `varchar(500)` or `text`  | Payment explanations         |
+| `Payment.InvoiceNumber` | 20 chars                 | `varchar(50)`             | Invoice references           |
+| `Payment.CheckNumber`   | 12 chars                 | `varchar(50)`             | Check/ACH trace numbers      |
+| `Document.Description`  | 128 chars                | `varchar(500)` or `text`  | Document descriptions        |
+| `Document.Path`         | 256 chars                | `varchar(1000)` or `text` | URIs can be long with tokens |
+| `Document.Fingerprint`  | N/A (new in 3.0)         | `varchar(100)`            | SHA-256 hashes (64 chars)    |
+| `Document.Tags[]`       | 4×50 chars (alt indexes) | `varchar(100)` per tag    | Individual tag values        |
+
+#### Notes and Long Text
+
+| UDS 3.0 Field     | UDS 2.0 Length                 | Recommended Type     | Rationale                                 |
+|-------------------|--------------------------------|----------------------|-------------------------------------------|
+| `Note.Text`       | 1000 chars per line            | `text` or `longtext` | **No practical limit** - can be very long |
+| `Note.OriginalId` | 4 chars                        | `int`                | Native integer                            |
+| `Claimant.CMS`    | 2220 chars (M Record CMS data) | `text` or `longtext` | Medicare Section 111 data                 |
+
+---
+
+### Special Considerations
+
+#### Unicode and International Characters
+
+UDS 2.0 field lengths were designed for ASCII (1 byte per character). Unicode characters can require up to 4 bytes per character in UTF-8 encoding. While this is handled at the database encoding level (not the varchar length), providing 2-3x headroom ensures international names and addresses fit comfortably.
+
+**Example:** A 30-character name field in UDS 2.0 becomes `varchar(255)` in UDS 3.0, allowing:
+- Long international names
+- Unicode characters (é, ñ, 中文, etc.)
+- Compound names with spaces and hyphens
+- Future growth
+
+#### Array Fields
+
+Fields like `Addresses[]`, `Emails[]`, `Tags[]`, and `Notes[]` are stored as **separate rows** in relational databases (one-to-many relationships). The varchar recommendations apply to each individual array element.
+
+**Example Implementation:**
+```sql
+CREATE TABLE Claimants (
+  ClaimantId INT PRIMARY KEY,
+  Number INT,
+  FirstName VARCHAR(255),
+  LastName VARCHAR(255)
+);
+
+CREATE TABLE ClaimantEmails (
+  EmailId INT PRIMARY KEY,
+  ClaimantId INT REFERENCES Claimants(ClaimantId),
+  Email VARCHAR(255)
+);
+```
+
+#### JSON Column Storage
+
+Some modern databases (PostgreSQL 9.4+, MySQL 5.7+) support native JSON columns. If storing the entire UDS 3.0 document in a JSON column, use:
+- `json` or `jsonb` type (PostgreSQL)
+- `json` type (MySQL)
+- `nvarchar(max)` (SQL Server)
+
+This bypasses individual field sizing but may have different query performance characteristics.
+
+---
+
+### Summary
+
+**General Rule of Thumb:**
+- **Codes/Indicators:** `varchar(10)` - small with headroom
+- **Identifiers (claims, policies):** `varchar(100)` - doubles UDS 2.0 baseline
+- **Names:** `varchar(255)` - standard name field size with Unicode support
+- **Addresses:** `varchar(255)` for lines, `varchar(100)` for cities
+- **Descriptions:** `varchar(500)` or `text` for medium descriptions
+- **Notes/Narratives:** `text` or `longtext` for unlimited content
+- **Numbers/Amounts:** `int` or `decimal(12,2)` - native numeric types
+- **Dates:** `date` or `datetime` - native date types
+
+**Rationale:** These recommendations provide generous headroom beyond UDS 2.0 limits while using standard database sizing conventions. They balance practical constraints with the flexibility promised by "unlimited field length" in JSON.
 
 ---
 
